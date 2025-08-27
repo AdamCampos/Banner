@@ -1,6 +1,6 @@
 ﻿using System;
+using System.IO;
 using System.Threading;
-using ComHookLib;
 using EasyHook;
 
 namespace ComHook
@@ -11,46 +11,62 @@ namespace ComHook
     /// </summary>
     public class RemoteEntry : IEntryPoint
     {
-        // Canal/IPC não utilizado neste exemplo; mantido para compatibilidade
-        public RemoteEntry(RemoteHooking.IContext context, string channelName)
+        private readonly string _logPath;
+
+        // O Injector envia: (context, logPath)
+        public RemoteEntry(RemoteHooking.IContext context, string logPath)
         {
-            // No ctor apenas registramos o início
-            ComLogger.Write("[Remote] Starting hooks");
+            _logPath = logPath;
+            try
+            {
+                if (!string.IsNullOrEmpty(_logPath))
+                {
+                    var dir = Path.GetDirectoryName(_logPath);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                        Directory.CreateDirectory(dir);
+
+                    File.AppendAllText(_logPath,
+                        $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [REMOTE OK] RemoteEntry ctor carregado. PID={RemoteHooking.GetCurrentProcessId()}{Environment.NewLine}");
+                }
+            }
+            catch { /* nunca propaga no remoto */ }
         }
 
-        public void Run(RemoteHooking.IContext context, string channelName)
+        public void Run(RemoteHooking.IContext context, string logPathFromInjector)
         {
             try
             {
                 // Instala os hooks
-                ComHooks.Install();
+                ComHook.ComHooks.Install();
 
-                // Mantém o remoto vivo até ser descarregado
-                // (em implementações com IPC, você poderia aguardar sinal)
-                while (true)
+                // Mais um ping de prova-de-vida
+                try
                 {
-                    Thread.Sleep(500);
+                    if (!string.IsNullOrEmpty(_logPath))
+                    {
+                        File.AppendAllText(_logPath,
+                            $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [REMOTE OK] Hooks instalados.{Environment.NewLine}");
+                    }
                 }
+                catch { }
+
+                // Mantém o remoto vivo
+                while (true)
+                    Thread.Sleep(500);
             }
             catch (ThreadAbortException)
             {
-                // Descarregado pelo injetor — tenta desinstalar
-                try { ComHooks.Uninstall(); } catch (Exception ex) { ComLogger.Err("RemoteEntry.Run/Abort", ex); }
+                try { ComHook.ComHooks.Uninstall(); } catch { }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                ComLogger.Err("RemoteEntry.Run", ex);
-                try { ComHooks.Uninstall(); } catch (Exception ex2) { ComLogger.Err("RemoteEntry.Run/Uninstall", ex2); }
+                try { ComHook.ComHooks.Uninstall(); } catch { }
             }
         }
 
-        /// <summary>
-        /// Método auxiliar para cenários em que o injetor chame explicitamente.
-        /// </summary>
         public static void Uninstall()
         {
-            try { ComHooks.Uninstall(); }
-            catch (Exception ex) { ComLogger.Err("RemoteEntry.Uninstall", ex); }
+            try { ComHook.ComHooks.Uninstall(); } catch { }
         }
     }
 }

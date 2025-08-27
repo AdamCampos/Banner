@@ -1,9 +1,6 @@
 C:\Projetos\VisualStudio\Banner\ComHookLib\bin\x86\Release\EasyHook32.dll
 C:\Projetos\VisualStudio\Banner\ComHookLib\bin\x86\Release\EasyHook32Svc.exe
-C:\Projetos\VisualStudio\Banner\ComHookLib\bin\x86\Release\EasyHook64.dll
-C:\Projetos\VisualStudio\Banner\ComHookLib\bin\x86\Release\EasyHook64Svc.exe
 C:\Projetos\VisualStudio\Banner\ComHookLib\bin\x86\Release\EasyLoad32.dll
-C:\Projetos\VisualStudio\Banner\ComHookLib\bin\x86\Release\EasyLoad64.dll
 C:\Projetos\VisualStudio\Banner\ComHookLib\bin\x86\Release\ComHookLib.dll
 C:\Projetos\VisualStudio\Banner\ComHookLib\bin\x86\Release\ComHookLib.pdb
 C:\Projetos\VisualStudio\Banner\ComHookLib\bin\x86\Release\EasyHook.dll

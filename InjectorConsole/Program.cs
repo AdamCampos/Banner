@@ -1,39 +1,39 @@
 ﻿using System;
 using System.IO;
+using System.Reflection;
 using EasyHook;
-using ComHookLib; // <- ESTE é o namespace correto que contém ComLogIpc
 
 class Injector
 {
-    static void Main(string[] args)
+    static int Main(string[] args)
     {
         if (args.Length < 2)
         {
-            Console.WriteLine("Uso: InjectorConsole <PID> <LogPath>");
-            Console.WriteLine(@"Ex.: InjectorConsole 17656 C:\Temp\com_activations_remote.log");
-            return;
+            Console.WriteLine("Uso: InjectorConsole <PID> <LogPath> [<DllPath>]");
+            Console.WriteLine(@"Ex.: InjectorConsole 17656 C:\Temp\ftaelog.log C:\...\ComHookLib_abcd.dll");
+            return 1;
         }
 
         int pid = int.Parse(args[0]);
         string logPath = args[1];
 
-        var dir = Path.GetDirectoryName(logPath);
-        if (!string.IsNullOrEmpty(dir))
-            Directory.CreateDirectory(dir);
+        string baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        if (string.IsNullOrEmpty(baseDir))
+            baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
-        // ⚠️ Forçar o tipo com namespace totalmente qualificado evita erros de resolução
-        string channel = null;
-        RemoteHooking.IpcCreateServer<ComHookLib.ComLogIpc>(
-            ref channel,
-            System.Runtime.Remoting.WellKnownObjectMode.Singleton);
+        string hookLib = (args.Length >= 3 && !string.IsNullOrWhiteSpace(args[2]))
+            ? args[2]
+            : Path.Combine(baseDir, "ComHookLib.dll");
 
-        // Caminho da DLL a injetar
-        string hookLib = Path.GetFullPath("ComHookLib.dll");
         if (!File.Exists(hookLib))
         {
             Console.WriteLine("ERRO: ComHookLib.dll não encontrado: " + hookLib);
-            return;
+            return 2;
         }
+
+        var dir = Path.GetDirectoryName(logPath);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
 
         Console.WriteLine($"Injetando no PID {pid} com log em: {logPath}");
         try
@@ -41,16 +41,16 @@ class Injector
             RemoteHooking.Inject(
                 pid,
                 InjectionOptions.Default,
-                hookLib, hookLib,    // x86/x64: use a DLL correta para a arquitetura do alvo
-                channel,
-                logPath
+                hookLib, // x86
+                hookLib, // mesmo caminho passado duas vezes (assinatura exige 32/64)
+                logPath  // argumento entregue ao remoto
             );
-            Console.WriteLine("Injetado. Pressione Enter para encerrar...");
-            Console.ReadLine();
+            return 0;
         }
         catch (Exception ex)
         {
             Console.WriteLine("Falha na injeção: " + ex);
+            return 3;
         }
     }
 }
