@@ -27,22 +27,74 @@ $script:DllToInject = $null  # caminho EXATO (versionado por SHA) que será inje
 
 # =================== UTIL ===================
 
+function Ensure-Dir {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return }
+    if (-not (Test-Path -LiteralPath $Path)) {
+        New-Item -ItemType Directory -Path $Path | Out-Null
+    }
+}
+
+# Escrita COMPARTILHADA no log (FileShare.ReadWrite) + retentativa
+function Write-LogLine {
+    param(
+        [Parameter(Mandatory=$true)]
+        [AllowEmptyString()]
+        [string]$Text
+    )
+
+    if ($null -eq $Text) { $Text = "" }
+
+    $dir = Split-Path -Parent $Global:LogPath
+    Ensure-Dir $dir
+
+    $enc = New-Object System.Text.UTF8Encoding($false)
+    for ($i=0; $i -lt 5; $i++) {
+        $fs = $null; $sw = $null
+        try {
+            $fs = New-Object System.IO.FileStream($Global:LogPath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+            $sw = New-Object System.IO.StreamWriter($fs, $enc)
+            $sw.WriteLine($Text)
+            $sw.Flush()
+            break
+        }
+        catch {
+            Start-Sleep -Milliseconds 150
+            if ($i -eq 4) {
+                Write-Warning ("Falha ao escrever no log '{0}': {1}" -f $Global:LogPath, $_.Exception.Message)
+            }
+        }
+        finally {
+            if ($sw) { $sw.Dispose() }
+            if ($fs) { $fs.Dispose() }
+        }
+    }
+}
+
+# Reset de log sem lock exclusivo (Create + FileShare.ReadWrite)
 function Reset-Log {
-    $dir = Split-Path $Global:LogPath -Parent
-    if (!(Test-Path $dir)) { New-Item -Type Directory -Path $dir | Out-Null }
-    Set-Content -Path $Global:LogPath -Value $null -Encoding UTF8 -Force
+    $dir = Split-Path -Parent $Global:LogPath
+    Ensure-Dir $dir
+
+    $fs = $null
+    try {
+        $fs = New-Object System.IO.FileStream($Global:LogPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+        # apenas truncar/criar
+    } finally {
+        if ($fs) { $fs.Dispose() }
+    }
 }
 
 function W {
     param([string]$msg)
     $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"), $msg
-    $line | Out-File -FilePath $Global:LogPath -Append -Encoding UTF8
+    Write-LogLine $line
     Write-Host $msg
 }
 
 function Test-PeArchitecture {
     param([string]$Path)
-    if (!(Test-Path $Path)) { throw "Arquivo não encontrado: $Path" }
+    if (-not (Test-Path -LiteralPath $Path)) { throw "Arquivo não encontrado: $Path" }
     $fs = [System.IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
     try {
         $br = New-Object System.IO.BinaryReader($fs)
@@ -56,7 +108,7 @@ function Test-PeArchitecture {
 
 function Get-FileSHA256 {
     param([string]$Path)
-    if (!(Test-Path $Path)) { throw "Arquivo não encontrado: $Path" }
+    if (-not (Test-Path -LiteralPath $Path)) { throw "Arquivo não encontrado: $Path" }
     $sha = [System.Security.Cryptography.SHA256]::Create()
     $fs = [System.IO.File]::OpenRead($Path)
     try {
@@ -68,8 +120,8 @@ function Safe-Copy {
     param([string]$Src,[string]$Dst)
     try {
         $dir = Split-Path $Dst -Parent
-        if (!(Test-Path $dir)) { New-Item -Type Directory -Path $dir | Out-Null }
-        Copy-Item $Src $Dst -Force
+        Ensure-Dir $dir
+        Copy-Item -LiteralPath $Src -Destination $Dst -Force
         return $true
     } catch {
         W ("AVISO: não consegui copiar para '{0}': {1}" -f $Dst, $_.Exception.Message)
@@ -79,24 +131,24 @@ function Safe-Copy {
 
 function Cleanup-OldHashedDlls {
     param([string]$Dir,[int]$Keep=5)
-    if (!(Test-Path $Dir)) { return }
-    $files = Get-ChildItem -Path $Dir -Filter "ComHookLib_*.dll" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+    if (-not (Test-Path -LiteralPath $Dir)) { return }
+    $files = Get-ChildItem -LiteralPath $Dir -Filter "ComHookLib_*.dll" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
     $toDel = $files | Select-Object -Skip $Keep
-    foreach($f in $toDel){ try { Remove-Item $f.FullName -Force -ErrorAction SilentlyContinue } catch {} }
+    foreach($f in $toDel){ try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue } catch {} }
 }
 
 function Ensure-X86-Dll-And-PrepareHashed {
     param([string]$Src,[string]$InjectorExePath,[string]$DllDestinoRelease,[string]$DllDestinoExe)
 
-    if (!(Test-Path $Src)) { throw "DLL fonte não encontrada: $Src — faça o build x86 (Release) da ComHookLib." }
+    if (-not (Test-Path -LiteralPath $Src)) { throw "DLL fonte não encontrada: $Src — faça o build x86 (Release) da ComHookLib." }
     $arch = Test-PeArchitecture $Src
     if ($arch -ne "x86") { throw "A DLL fonte não é x86 (detectado: $arch). Verifique o build." }
 
     $hash = Get-FileSHA256 $Src
-    $prev = if (Test-Path $Global:LastHashPath){ Get-Content $Global:LastHashPath -ErrorAction SilentlyContinue } else { "" }
+    $prev = if (Test-Path -LiteralPath $Global:LastHashPath){ Get-Content -LiteralPath $Global:LastHashPath -ErrorAction SilentlyContinue } else { "" }
     if ($prev -and ($hash -eq $prev)) { W "AVISO: DLL fonte possui o mesmo SHA256 da última injeção (pode ser a mesma build)." }
     else { W "Nova DLL detectada (SHA256 diferente)." }
-    Set-Content -Path $Global:LastHashPath -Value $hash -Encoding ASCII -Force
+    Set-Content -LiteralPath $Global:LastHashPath -Value $hash -Encoding ASCII -Force
 
     # Caminho versionado por SHA dentro da pasta do injector
     $injDir = Split-Path -Path $InjectorExePath -Parent
@@ -119,9 +171,9 @@ function Ensure-X86-Dll-And-PrepareHashed {
     try {
         $fvi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Src)
         W ("DLL Fonte: Version={0} | FileVersion={1} | ProductVersion={2} | LastWrite={3}" -f `
-            $fvi.ProductVersion, $fvi.FileVersion, $fvi.ProductVersion, (Get-Item $Src).LastWriteTime)
+            $fvi.ProductVersion, $fvi.FileVersion, $fvi.ProductVersion, (Get-Item -LiteralPath $Src).LastWriteTime)
     } catch {
-        W ("DLL Fonte: LastWrite={0} | SHA256={1}" -f (Get-Item $Src).LastWriteTime, $hash)
+        W ("DLL Fonte: LastWrite={0} | SHA256={1}" -f (Get-Item -LiteralPath $Src).LastWriteTime, $hash)
     }
 
     Cleanup-OldHashedDlls -Dir $injDir -Keep 5
@@ -131,7 +183,7 @@ function Pick-ProcId {
     param([string]$ProcessoAlvoPadrao, [string]$WindowTitleFilter)
     $procs = Get-Process -Name $ProcessoAlvoPadrao -ErrorAction SilentlyContinue
     if ($WindowTitleFilter) { $procs = $procs | Where-Object { $_.MainWindowTitle -like "*$WindowTitleFilter*" } }
-    if (!$procs -or $procs.Count -eq 0) {
+    if (-not $procs -or $procs.Count -eq 0) {
         W "Não encontrei '$ProcessoAlvoPadrao'$(if($WindowTitleFilter){" com título contendo '$WindowTitleFilter'"}). Listando processos..."
         Get-Process | Where-Object { -not $WindowTitleFilter -or ($_.MainWindowTitle -like "*$WindowTitleFilter*") } |
           Sort-Object ProcessName | Select-Object Id, ProcessName, MainWindowTitle | Out-Host
@@ -158,12 +210,13 @@ function Invoke-Injector {
 
     $stdout = "C:\Temp\injector_stdout.log"
     $stderr = "C:\Temp\injector_stderr.log"
-    Set-Content -Path $stdout -Value $null -Encoding UTF8 -Force
-    Set-Content -Path $stderr -Value $null -Encoding UTF8 -Force
+    Set-Content -LiteralPath $stdout -Value $null -Encoding UTF8 -Force
+    Set-Content -LiteralPath $stderr -Value $null -Encoding UTF8 -Force
 
     # Assinatura: InjectorConsole <PID> <LogPath> [<DllPath>]
     $args = if ($DllPath) { @($ProcId, $LogPath, $DllPath) } else { @($ProcId, $LogPath) }
 
+    $exit = 3
     try {
         $wd = Split-Path -Path $InjectorExe -Parent
         W ("Injector args (reais): {0}" -f ($args -join ' '))
@@ -174,23 +227,33 @@ function Invoke-Injector {
                            -WindowStyle Hidden `
                            -RedirectStandardOutput $stdout `
                            -RedirectStandardError  $stderr
-        W ("Injector ExitCode={0}" -f $p.ExitCode)
-        "`n--- Injector STDOUT ---`n" | Out-File $Global:LogPath -Append -Encoding UTF8
-        Get-Content $stdout | Out-File $Global:LogPath -Append -Encoding UTF8
-        "`n--- Injector STDERR ---`n" | Out-File $Global:LogPath -Append -Encoding UTF8
-        Get-Content $stderr | Out-File $Global:LogPath -Append -Encoding UTF8
-        return ($p.ExitCode -eq 0)
+        $exit = $p.ExitCode
+        W ("Injector ExitCode={0}" -f $exit)
     } catch {
         W ("Exceção ao executar injector: {0}" -f $_.Exception.Message)
         return $false
     }
+
+    # Registrar STDOUT/STDERR — qualquer erro aqui NÃO invalida a injeção
+    try {
+        Write-LogLine ""
+        Write-LogLine "--- Injector STDOUT ---"
+        Get-Content -LiteralPath $stdout -Encoding UTF8 | ForEach-Object { Write-LogLine $_ }
+        Write-LogLine ""
+        Write-LogLine "--- Injector STDERR ---"
+        Get-Content -LiteralPath $stderr -Encoding UTF8 | ForEach-Object { Write-LogLine $_ }
+    } catch {
+        Write-Warning ("Falha ao registrar STDOUT/STDERR do Injector: {0}" -f $_.Exception.Message)
+    }
+
+    return ($exit -eq 0)
 }
 
 function Try-Inject {
     param([string]$InjectorExe,[int]$ProcId,[string]$DllPath)
 
-    if (!(Test-Path $InjectorExe)) { throw "Injector não encontrado: $InjectorExe" }
-    if (!(Test-Path $DllPath))    { throw "DLL para injeção não encontrada: $DllPath" }
+    if (-not (Test-Path -LiteralPath $InjectorExe)) { throw "Injector não encontrado: $InjectorExe" }
+    if (-not (Test-Path -LiteralPath $DllPath))    { throw "DLL para injeção não encontrada: $DllPath" }
     $injArch = Test-PeArchitecture $InjectorExe
     if ($injArch -ne "x86") { throw "Injector não é x86 (detectado: $injArch). Ajuste o build do InjectorConsole." }
 
@@ -208,7 +271,7 @@ function Test-Process-Alive { param([int]$ProcId) try { Get-Process -Id $ProcId 
 
 function Find-LoadedModule {
     param([int]$ProcId,[string]$ModuleName="ComHookLib.dll")
-    # 1) tentamos via .NET
+    # 1) via .NET
     try {
         $p = Get-Process -Id $ProcId -ErrorAction Stop
         foreach ($m in $p.Modules) { if ($m.ModuleName -ieq $ModuleName) { return $true } }
@@ -223,7 +286,7 @@ function Find-LoadedModule {
 
 function Confirm-RemoteHeartbeat {
     param([string]$Path = $Global:LogPath)
-    try { (Get-Content -Path $Path -ErrorAction Stop -Tail 200) -match "\[REMOTE OK\]" } catch { $false }
+    try { (Get-Content -LiteralPath $Path -ErrorAction Stop -Tail 200) -match "\[REMOTE OK\]" } catch { $false }
 }
 
 # =================== MAIN ===================

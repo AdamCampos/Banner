@@ -3,10 +3,31 @@
   "WorkspaceRootPath": "C:\\Projetos\\VisualStudio\\Banner\\Banner\\",
   "Documents": [
     {
+      "AbsoluteMoniker": "D:0:0:{79D14332-E526-4381-BAED-53A95B23A82A}|..\\ComHookLib\\ComHookLib.csproj|c:\\projetos\\visualstudio\\banner\\comhooklib\\remoteentry.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{79D14332-E526-4381-BAED-53A95B23A82A}|..\\ComHookLib\\ComHookLib.csproj|c:\\projetos\\visualstudio\\banner\\comhooklib\\uihook.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{79D14332-E526-4381-BAED-53A95B23A82A}|..\\ComHookLib\\ComHookLib.csproj|c:\\projetos\\visualstudio\\banner\\comhooklib\\comhooks.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{552B4678-759F-419A-B6BF-C08F58338813}|..\\InjectorConsole\\InjectorConsole.csproj|c:\\projetos\\visualstudio\\banner\\injectorconsole\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{79D14332-E526-4381-BAED-53A95B23A82A}|..\\ComHookLib\\ComHookLib.csproj|c:\\projetos\\visualstudio\\banner\\comhooklib\\remoteentry.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+      "AbsoluteMoniker": "D:0:0:{79D14332-E526-4381-BAED-53A95B23A82A}|..\\ComHookLib\\ComHookLib.csproj|c:\\projetos\\visualstudio\\banner\\comhooklib\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{79D14332-E526-4381-BAED-53A95B23A82A}|..\\ComHookLib\\ComHookLib.csproj|c:\\projetos\\visualstudio\\banner\\comhooklib\\jsonl.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{79D14332-E526-4381-BAED-53A95B23A82A}|..\\ComHookLib\\ComHookLib.csproj|c:\\projetos\\visualstudio\\banner\\comhooklib\\native.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{79D14332-E526-4381-BAED-53A95B23A82A}|..\\ComHookLib\\ComHookLib.csproj|c:\\projetos\\visualstudio\\banner\\comhooklib\\comlogipc.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{79D14332-E526-4381-BAED-53A95B23A82A}|..\\ComHookLib\\ComHookLib.csproj|c:\\projetos\\visualstudio\\banner\\comhooklib\\comlogger.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     }
   ],
   "DocumentGroupContainers": [
@@ -16,7 +37,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 4,
+          "SelectedChildIndex": 10,
           "Children": [
             {
               "$type": "Bookmark",
@@ -32,26 +53,117 @@
             },
             {
               "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\Program.cs",
+              "RelativeDocumentMoniker": "..\\ComHookLib\\Program.cs",
+              "ToolTip": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\Program.cs",
+              "RelativeToolTip": "..\\ComHookLib\\Program.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA0AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-08-27T15:52:27.505Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "ComHooks.cs",
+              "DocumentMoniker": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\ComHooks.cs",
+              "RelativeDocumentMoniker": "..\\ComHookLib\\ComHooks.cs",
+              "ToolTip": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\ComHooks.cs",
+              "RelativeToolTip": "..\\ComHookLib\\ComHooks.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABcAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-08-27T15:52:11.197Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "Jsonl.cs",
+              "DocumentMoniker": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\Jsonl.cs",
+              "RelativeDocumentMoniker": "..\\ComHookLib\\Jsonl.cs",
+              "ToolTip": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\Jsonl.cs",
+              "RelativeToolTip": "..\\ComHookLib\\Jsonl.cs",
+              "ViewState": "AgIAAL8AAAAAAAAAAAAAAOkAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-08-27T15:38:41.759Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "Native.cs",
+              "DocumentMoniker": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\Native.cs",
+              "RelativeDocumentMoniker": "..\\ComHookLib\\Native.cs",
+              "ToolTip": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\Native.cs",
+              "RelativeToolTip": "..\\ComHookLib\\Native.cs",
+              "ViewState": "AgIAACMAAAAAAAAAAAAAAE0AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-08-27T15:38:18.371Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
               "DocumentIndex": 1,
+              "Title": "UiHook.cs",
+              "DocumentMoniker": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\UiHook.cs",
+              "RelativeDocumentMoniker": "..\\ComHookLib\\UiHook.cs",
+              "ToolTip": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\UiHook.cs",
+              "RelativeToolTip": "..\\ComHookLib\\UiHook.cs",
+              "ViewState": "AgIAADIAAAAAAAAAAAAAAFwAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-08-27T15:37:59.659Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "ComLogIpc.cs",
+              "DocumentMoniker": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\ComLogIpc.cs",
+              "RelativeDocumentMoniker": "..\\ComHookLib\\ComLogIpc.cs",
+              "ToolTip": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\ComLogIpc.cs",
+              "RelativeToolTip": "..\\ComHookLib\\ComLogIpc.cs",
+              "ViewState": "AgIAADIAAAAAAAAAAAAAAFwAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-08-27T15:37:38.752Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "ComLogger.cs",
+              "DocumentMoniker": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\ComLogger.cs",
+              "RelativeDocumentMoniker": "..\\ComHookLib\\ComLogger.cs",
+              "ToolTip": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\ComLogger.cs",
+              "RelativeToolTip": "..\\ComHookLib\\ComLogger.cs",
+              "ViewState": "AgIAACsAAAAAAAAAAAAAAFUAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-08-27T15:37:24.448Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
               "Title": "RemoteEntry.cs",
               "DocumentMoniker": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\RemoteEntry.cs",
               "RelativeDocumentMoniker": "..\\ComHookLib\\RemoteEntry.cs",
               "ToolTip": "C:\\Projetos\\VisualStudio\\Banner\\ComHookLib\\RemoteEntry.cs",
               "RelativeToolTip": "..\\ComHookLib\\RemoteEntry.cs",
-              "ViewState": "AgIAAB4AAAAAAAAAAAAAAEgAAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAADoAAAAAAAAAAAAAAGQAAAAAAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2025-08-27T13:08:41.354Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 3,
               "Title": "Program.cs",
               "DocumentMoniker": "C:\\Projetos\\VisualStudio\\Banner\\InjectorConsole\\Program.cs",
               "RelativeDocumentMoniker": "..\\InjectorConsole\\Program.cs",
               "ToolTip": "C:\\Projetos\\VisualStudio\\Banner\\InjectorConsole\\Program.cs",
               "RelativeToolTip": "..\\InjectorConsole\\Program.cs",
-              "ViewState": "AgIAAA4AAAAAAAAAAAAAADgAAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAA8AAAAAAAAAAAAAACIAAAAnAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
               "WhenOpened": "2025-08-27T13:08:02.867Z",
               "EditorCaption": ""

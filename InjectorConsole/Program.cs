@@ -38,12 +38,13 @@ class Injector
         Console.WriteLine($"Injetando no PID {pid} com log em: {logPath}");
         try
         {
+            // x86 simples: passa o mesmo caminho para x86/x64 (o processo alvo é x86)
             RemoteHooking.Inject(
                 pid,
                 InjectionOptions.Default,
                 hookLib, // x86
-                hookLib, // mesmo caminho passado duas vezes (assinatura exige 32/64)
-                logPath  // argumento entregue ao remoto
+                hookLib, // (assinatura pede os dois; mantemos o mesmo)
+                logPath  // argumento entregue ao RemoteEntry ctor/Run
             );
             return 0;
         }

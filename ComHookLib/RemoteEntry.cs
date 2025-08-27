@@ -1,72 +1,100 @@
 ﻿using System;
+using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Threading;
 using EasyHook;
 
-namespace ComHook
+namespace ComHookLib
 {
     /// <summary>
-    /// Ponto de entrada remoto do EasyHook.
-    /// Mantém o processo-alvo vivo e instala/desinstala hooks com segurança.
+    /// EntryPoint exigido pelo EasyHook (x86).
+    /// Usa ILogger/ComLogger (instância) e grava também no logPath com compartilhamento.
     /// </summary>
-    public class RemoteEntry : IEntryPoint
+    public sealed class RemoteEntry : IEntryPoint, IDisposable
     {
+        private readonly CancellationTokenSource _cts = new CancellationTokenSource();
+        private readonly string _sessionId;
         private readonly string _logPath;
+        private readonly ILogger _logger;
+        private UiHook _uiHook;
+
+        private static void SafeAppendShared(string path, string text)
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+
+                using (var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+                using (var sw = new StreamWriter(fs, new UTF8Encoding(false)))
+                {
+                    sw.Write(text);
+                }
+            }
+            catch
+            {
+                // best effort
+            }
+        }
 
         // O Injector envia: (context, logPath)
         public RemoteEntry(RemoteHooking.IContext context, string logPath)
         {
-            _logPath = logPath;
-            try
-            {
-                if (!string.IsNullOrEmpty(_logPath))
-                {
-                    var dir = Path.GetDirectoryName(_logPath);
-                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                        Directory.CreateDirectory(dir);
+            _logPath = string.IsNullOrWhiteSpace(logPath) ? Path.Combine(Path.GetTempPath(), "ftaelog.log") : logPath;
 
-                    File.AppendAllText(_logPath,
-                        $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [REMOTE OK] RemoteEntry ctor carregado. PID={RemoteHooking.GetCurrentProcessId()}{Environment.NewLine}");
-                }
-            }
-            catch { /* nunca propaga no remoto */ }
+            _sessionId = string.Format(
+                "{0}-{1}-{2}",
+                DateTime.UtcNow.ToString("yyyyMMddTHHmmssfffZ"),
+                Process.GetCurrentProcess().Id,
+                Native.GetCurrentThreadId()
+            );
+
+            // Logger baseado no ComLogger.cs do projeto (instância + ILogSink)
+            _logger = new ComLogger(new ComLogIpc("FTAEPipe", _logPath), _sessionId);
+
+            SafeAppendShared(_logPath,
+                "[REMOTE OK] IEntryPoint carregado. PID=" + Process.GetCurrentProcess().Id + " session=" + _sessionId + Environment.NewLine);
+
+            _logger.Info("[REMOTE OK] RemoteEntry iniciado. PID={0} session={1}", Process.GetCurrentProcess().Id, _sessionId);
+
+            // Hooks de UI (banner/diálogos)
+            _uiHook = new UiHook(_logger);
+            _uiHook.Start();
+
+            // Placeholder de COM (etapa 1/4 não instala hooks); passa logger
+            ComHooks.TryInitialize(_logger);
+
+            _logger.Info("[REMOTE OK] Hooks (UI/placeholder COM) instalados.");
         }
 
         public void Run(RemoteHooking.IContext context, string logPathFromInjector)
         {
             try
             {
-                // Instala os hooks
-                ComHook.ComHooks.Install();
-
-                // Mais um ping de prova-de-vida
-                try
+                while (!_cts.IsCancellationRequested)
                 {
-                    if (!string.IsNullOrEmpty(_logPath))
-                    {
-                        File.AppendAllText(_logPath,
-                            $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [REMOTE OK] Hooks instalados.{Environment.NewLine}");
-                    }
+                    Thread.Sleep(1000);
                 }
-                catch { }
-
-                // Mantém o remoto vivo
-                while (true)
-                    Thread.Sleep(500);
             }
-            catch (ThreadAbortException)
+            catch (Exception ex)
             {
-                try { ComHook.ComHooks.Uninstall(); } catch { }
-            }
-            catch (Exception)
-            {
-                try { ComHook.ComHooks.Uninstall(); } catch { }
+                _logger.Error(ex, "RemoteEntry.Run falhou.");
             }
         }
 
-        public static void Uninstall()
+        public void Dispose()
         {
-            try { ComHook.ComHooks.Uninstall(); } catch { }
+            try
+            {
+                _cts.Cancel();
+                if (_uiHook != null) _uiHook.Dispose();
+            }
+            catch
+            {
+                // swallow
+            }
         }
     }
 }
