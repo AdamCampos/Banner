@@ -7,10 +7,6 @@ using EasyHook;
 
 namespace ComHookLib
 {
-    /// <summary>
-    /// EntryPoint exigido pelo EasyHook (x86).
-    /// Usa ILogger/ComLogger (instância) e grava também no logPath com compartilhamento.
-    /// </summary>
     public sealed class RemoteEntry : IEntryPoint, IDisposable
     {
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
@@ -29,44 +25,29 @@ namespace ComHookLib
 
                 using (var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
                 using (var sw = new StreamWriter(fs, new UTF8Encoding(false)))
-                {
                     sw.Write(text);
-                }
             }
-            catch
-            {
-                // best effort
-            }
+            catch { }
         }
 
-        // O Injector envia: (context, logPath)
         public RemoteEntry(RemoteHooking.IContext context, string logPath)
         {
             _logPath = string.IsNullOrWhiteSpace(logPath) ? Path.Combine(Path.GetTempPath(), "ftaelog.log") : logPath;
 
-            _sessionId = string.Format(
-                "{0}-{1}-{2}",
-                DateTime.UtcNow.ToString("yyyyMMddTHHmmssfffZ"),
-                Process.GetCurrentProcess().Id,
-                Native.GetCurrentThreadId()
-            );
+            _sessionId = $"{DateTime.UtcNow:yyyyMMddTHHmmssfffZ}-{Process.GetCurrentProcess().Id}-{Native.GetCurrentThreadId()}";
 
-            // Logger baseado no ComLogger.cs do projeto (instância + ILogSink)
             _logger = new ComLogger(new ComLogIpc("FTAEPipe", _logPath), _sessionId);
 
-            SafeAppendShared(_logPath,
-                "[REMOTE OK] IEntryPoint carregado. PID=" + Process.GetCurrentProcess().Id + " session=" + _sessionId + Environment.NewLine);
-
+            SafeAppendShared(_logPath, "[REMOTE OK] IEntryPoint carregado. PID=" + Process.GetCurrentProcess().Id + " session=" + _sessionId + Environment.NewLine);
             _logger.Info("[REMOTE OK] RemoteEntry iniciado. PID={0} session={1}", Process.GetCurrentProcess().Id, _sessionId);
 
-            // Hooks de UI (banner/diálogos)
             _uiHook = new UiHook(_logger);
             _uiHook.Start();
 
-            // Placeholder de COM (etapa 1/4 não instala hooks); passa logger
-            ComHooks.TryInitialize(_logger);
+            // Etapa 2/4: instalar hooks COM reais
+            ComHooks.Install(_logger);
 
-            _logger.Info("[REMOTE OK] Hooks (UI/placeholder COM) instalados.");
+            _logger.Info("[REMOTE OK] Hooks (UI + COM) instalados.");
         }
 
         public void Run(RemoteHooking.IContext context, string logPathFromInjector)
@@ -74,9 +55,7 @@ namespace ComHookLib
             try
             {
                 while (!_cts.IsCancellationRequested)
-                {
                     Thread.Sleep(1000);
-                }
             }
             catch (Exception ex)
             {
@@ -89,12 +68,9 @@ namespace ComHookLib
             try
             {
                 _cts.Cancel();
-                if (_uiHook != null) _uiHook.Dispose();
+                _uiHook?.Dispose();
             }
-            catch
-            {
-                // swallow
-            }
+            catch { }
         }
     }
 }

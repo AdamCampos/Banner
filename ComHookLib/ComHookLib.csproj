@@ -49,6 +49,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="ComLogIpc.cs" />
+    <Compile Include="Hooking\ComApis.cs" />
+    <Compile Include="Hooking\EasyHookHelper.cs" />
     <Compile Include="Jsonl.cs" />
     <Compile Include="Native.cs" />
     <Compile Include="Program.cs" />

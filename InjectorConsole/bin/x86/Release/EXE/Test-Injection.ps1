@@ -1,348 +1,214 @@
-﻿# Test-Injection.ps1 — DLL versionada por SHA, log fixo, verificação robusta; não fecha cliente no sucesso
-# PowerShell 5.1 — Execute como Administrador
+﻿# Test-Injection.ps1  (PS 5.1)
+# - Modo Attach: injeta numa PID já em execução
+# - Modo Smoke : cria um alvo 32-bit (wscript.exe + VBS) pra validar hooks e eventos COM
+# Observações:
+#   * Sem uso de $pid
+#   * Sem Stop-Job -Force (incompatível no PS 5.1)
+#   * Inclui esperas configuráveis para permitir interação com o banner (ciclos ~2 min)
 
 param(
-    [string]$ProcessoAlvoPadrao = "DisplayClient",
-    [string]$WindowTitleFilter,
-    [int]$TargetProcId,
-    [int]$Tentativas = 3,
+    [ValidateSet('Attach','Smoke')]
+    [string]$Mode = 'Attach',
 
-    # Caminhos
-    [string]$InjectorExe = "C:\Projetos\VisualStudio\Banner\InjectorConsole\bin\x86\Release\InjectorConsole.exe",
-    [string]$DllFonte   = "C:\Projetos\VisualStudio\Banner\ComHookLib\bin\x86\Release\ComHookLib.dll",
+    # Usado no modo Attach
+    [int]$TargetPid,
 
-    # Destinos legados (best-effort, podem falhar se arquivo estiver em uso)
-    [string]$DllDestinoRelease = "C:\Projetos\VisualStudio\Banner\InjectorConsole\bin\x86\Release\ComHookLib.dll",
-    [string]$DllDestinoExe     = "C:\Projetos\VisualStudio\Banner\InjectorConsole\bin\x86\Release\EXE\ComHookLib.dll",
+    # Caminhos (ajuste se necessário)
+    [string]$InjectorExe = 'C:\Projetos\VisualStudio\Banner\InjectorConsole\bin\x86\Release\InjectorConsole.exe',
+    [string]$DllSource   = 'C:\Projetos\VisualStudio\Banner\ComHookLib\bin\x86\Release\ComHookLib.dll',
+    [string]$BinOutDir   = 'C:\Projetos\VisualStudio\Banner\InjectorConsole\bin\x86\Release',
+    [string]$LogPath     = 'C:\Temp\ftaelog.log',
 
-    [string]$ArgsInjectorExtras = "",
-    [switch]$OpenLog,          # abre log no final
-    [switch]$AutoCloseOnFail   # fecha cliente automaticamente apenas se falhar
+    # Esperas
+    [int]$TailSeconds       = 10,    # "espiadinha" inicial do log logo após injetar
+    [int]$ComTimeoutSeconds = 180,   # quanto esperar por eventos COM (aumente p/ ciclo > 2min)
+    [int]$StayAttachedSeconds = 0    # opcional: tail prolongado p/ você interagir no banner (0 = desliga)
 )
 
 $ErrorActionPreference = 'Stop'
-$Global:LogPath = "C:\Temp\ftaelog.log"
-$Global:LastHashPath = "C:\Temp\ComHookLib.last.sha256"
-$script:DllToInject = $null  # caminho EXATO (versionado por SHA) que será injetado
+Set-StrictMode -Version Latest
 
-# =================== UTIL ===================
-
-function Ensure-Dir {
+function Get-FileSha256 {
     param([string]$Path)
-    if ([string]::IsNullOrWhiteSpace($Path)) { return }
-    if (-not (Test-Path -LiteralPath $Path)) {
-        New-Item -ItemType Directory -Path $Path | Out-Null
-    }
-}
-
-# Escrita COMPARTILHADA no log (FileShare.ReadWrite) + retentativa
-function Write-LogLine {
-    param(
-        [Parameter(Mandatory=$true)]
-        [AllowEmptyString()]
-        [string]$Text
-    )
-
-    if ($null -eq $Text) { $Text = "" }
-
-    $dir = Split-Path -Parent $Global:LogPath
-    Ensure-Dir $dir
-
-    $enc = New-Object System.Text.UTF8Encoding($false)
-    for ($i=0; $i -lt 5; $i++) {
-        $fs = $null; $sw = $null
-        try {
-            $fs = New-Object System.IO.FileStream($Global:LogPath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
-            $sw = New-Object System.IO.StreamWriter($fs, $enc)
-            $sw.WriteLine($Text)
-            $sw.Flush()
-            break
-        }
-        catch {
-            Start-Sleep -Milliseconds 150
-            if ($i -eq 4) {
-                Write-Warning ("Falha ao escrever no log '{0}': {1}" -f $Global:LogPath, $_.Exception.Message)
-            }
-        }
-        finally {
-            if ($sw) { $sw.Dispose() }
-            if ($fs) { $fs.Dispose() }
-        }
-    }
-}
-
-# Reset de log sem lock exclusivo (Create + FileShare.ReadWrite)
-function Reset-Log {
-    $dir = Split-Path -Parent $Global:LogPath
-    Ensure-Dir $dir
-
-    $fs = $null
-    try {
-        $fs = New-Object System.IO.FileStream($Global:LogPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
-        # apenas truncar/criar
-    } finally {
-        if ($fs) { $fs.Dispose() }
-    }
-}
-
-function W {
-    param([string]$msg)
-    $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"), $msg
-    Write-LogLine $line
-    Write-Host $msg
-}
-
-function Test-PeArchitecture {
-    param([string]$Path)
-    if (-not (Test-Path -LiteralPath $Path)) { throw "Arquivo não encontrado: $Path" }
-    $fs = [System.IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
-    try {
-        $br = New-Object System.IO.BinaryReader($fs)
-        $mz = $br.ReadBytes(2); if ($mz[0] -ne 0x4D -or $mz[1] -ne 0x5A) { throw "Assinatura MZ inválida em $Path" }
-        $fs.Seek(0x3C,'Begin')|Out-Null; $peOffset = $br.ReadInt32()
-        $fs.Seek($peOffset,'Begin')|Out-Null; $peSig = $br.ReadBytes(4)
-        if ($peSig[0] -ne 0x50 -or $peSig[1] -ne 0x45) { throw "Assinatura PE inválida em $Path" }
-        switch ($br.ReadUInt16()) { 0x014c {"x86"}; 0x8664 {"x64"}; default { "desconhecida" } }
-    } finally { $fs.Dispose() }
-}
-
-function Get-FileSHA256 {
-    param([string]$Path)
-    if (-not (Test-Path -LiteralPath $Path)) { throw "Arquivo não encontrado: $Path" }
+    if (!(Test-Path $Path)) { return $null }
     $sha = [System.Security.Cryptography.SHA256]::Create()
-    $fs = [System.IO.File]::OpenRead($Path)
-    try {
-        ($sha.ComputeHash($fs) | ForEach-Object { $_.ToString("x2") }) -join ""
-    } finally { $fs.Dispose(); $sha.Dispose() }
+    $fs  = [System.IO.File]::OpenRead($Path)
+    try { return ($sha.ComputeHash($fs) | ForEach-Object { $_.ToString('x2') }) -join '' }
+    finally { $fs.Dispose(); $sha.Dispose() }
 }
 
-function Safe-Copy {
-    param([string]$Src,[string]$Dst)
-    try {
-        $dir = Split-Path $Dst -Parent
-        Ensure-Dir $dir
-        Copy-Item -LiteralPath $Src -Destination $Dst -Force
-        return $true
-    } catch {
-        W ("AVISO: não consegui copiar para '{0}': {1}" -f $Dst, $_.Exception.Message)
-        return $false
-    }
+function New-VersionedCopy {
+    param([string]$Source, [string]$OutDir)
+    if (!(Test-Path $Source)) { throw "DLL fonte não encontrada: $Source" }
+    if (!(Test-Path $OutDir)) { New-Item -ItemType Directory -Force -Path $OutDir | Out-Null }
+
+    $hash = Get-FileSha256 -Path $Source
+    if ($hash) { Write-Warning "DLL fonte possui o mesmo SHA256 da última injeção (pode ser a mesma build)." }
+
+    $target = Join-Path $OutDir ("ComHookLib_{0}.dll" -f $hash)
+    Copy-Item -LiteralPath $Source -Destination $target -Force
+
+    $fi = Get-Item $Source
+    Write-Host ("DLL x86 (versionada) copiada: {0}  ->  {1}" -f $Source, $target)
+    Write-Host ("DLL Fonte: Version={0} | FileVersion={1} | ProductVersion={2} | LastWrite={3}" -f `
+        ($fi.VersionInfo.ProductVersion), ($fi.VersionInfo.FileVersion), ($fi.VersionInfo.ProductVersion), $fi.LastWriteTime)
+    return $target
 }
 
-function Cleanup-OldHashedDlls {
-    param([string]$Dir,[int]$Keep=5)
-    if (-not (Test-Path -LiteralPath $Dir)) { return }
-    $files = Get-ChildItem -LiteralPath $Dir -Filter "ComHookLib_*.dll" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
-    $toDel = $files | Select-Object -Skip $Keep
-    foreach($f in $toDel){ try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue } catch {} }
-}
-
-function Ensure-X86-Dll-And-PrepareHashed {
-    param([string]$Src,[string]$InjectorExePath,[string]$DllDestinoRelease,[string]$DllDestinoExe)
-
-    if (-not (Test-Path -LiteralPath $Src)) { throw "DLL fonte não encontrada: $Src — faça o build x86 (Release) da ComHookLib." }
-    $arch = Test-PeArchitecture $Src
-    if ($arch -ne "x86") { throw "A DLL fonte não é x86 (detectado: $arch). Verifique o build." }
-
-    $hash = Get-FileSHA256 $Src
-    $prev = if (Test-Path -LiteralPath $Global:LastHashPath){ Get-Content -LiteralPath $Global:LastHashPath -ErrorAction SilentlyContinue } else { "" }
-    if ($prev -and ($hash -eq $prev)) { W "AVISO: DLL fonte possui o mesmo SHA256 da última injeção (pode ser a mesma build)." }
-    else { W "Nova DLL detectada (SHA256 diferente)." }
-    Set-Content -LiteralPath $Global:LastHashPath -Value $hash -Encoding ASCII -Force
-
-    # Caminho versionado por SHA dentro da pasta do injector
-    $injDir = Split-Path -Path $InjectorExePath -Parent
-    $hashedName = "ComHookLib_{0}.dll" -f $hash
-    $hashedPath = Join-Path $injDir $hashedName
-
-    # Copia para o arquivo versionado (não estará em uso)
-    if (Safe-Copy -Src $Src -Dst $hashedPath) {
-        W ("DLL x86 (versionada) copiada: {0}  ->  {1}" -f $Src, $hashedPath)
-        $script:DllToInject = $hashedPath
-    } else {
-        throw "Falha ao copiar DLL para caminho versionado (hash)."
-    }
-
-    # Best-effort destinos legados (se travar, seguimos)
-    [void](Safe-Copy -Src $Src -Dst $DllDestinoRelease)
-    [void](Safe-Copy -Src $Src -Dst $DllDestinoExe)
-
-    # Metadados
-    try {
-        $fvi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Src)
-        W ("DLL Fonte: Version={0} | FileVersion={1} | ProductVersion={2} | LastWrite={3}" -f `
-            $fvi.ProductVersion, $fvi.FileVersion, $fvi.ProductVersion, (Get-Item -LiteralPath $Src).LastWriteTime)
-    } catch {
-        W ("DLL Fonte: LastWrite={0} | SHA256={1}" -f (Get-Item -LiteralPath $Src).LastWriteTime, $hash)
-    }
-
-    Cleanup-OldHashedDlls -Dir $injDir -Keep 5
-}
-
-function Pick-ProcId {
-    param([string]$ProcessoAlvoPadrao, [string]$WindowTitleFilter)
-    $procs = Get-Process -Name $ProcessoAlvoPadrao -ErrorAction SilentlyContinue
-    if ($WindowTitleFilter) { $procs = $procs | Where-Object { $_.MainWindowTitle -like "*$WindowTitleFilter*" } }
-    if (-not $procs -or $procs.Count -eq 0) {
-        W "Não encontrei '$ProcessoAlvoPadrao'$(if($WindowTitleFilter){" com título contendo '$WindowTitleFilter'"}). Listando processos..."
-        Get-Process | Where-Object { -not $WindowTitleFilter -or ($_.MainWindowTitle -like "*$WindowTitleFilter*") } |
-          Sort-Object ProcessName | Select-Object Id, ProcessName, MainWindowTitle | Out-Host
-        return [int](Read-Host "Digite o PID de destino")
-    }
-    if ($procs.Count -eq 1) { return [int]$procs.Id }
-    Write-Host "Foram encontrados vários '$ProcessoAlvoPadrao':"
-    $i=0;$map=@{}; foreach ($p in $procs) { $i++; $map[$i]=$p.Id; "{0}. PID {1} - {2} {3}" -f $i,$p.Id,$p.ProcessName,($p.MainWindowTitle) | Out-Host }
-    return [int]$map[[int](Read-Host "Escolha o índice")]
-}
-
-function Fechar-Clientes-FTView {
-    $candidatos = @("DisplayClient","SEClient","ViewSEClient","FTViewSEClient","FTAEClient","FTClient","RSView32")
-    foreach ($n in $candidatos) {
-        Get-Process -Name $n -ErrorAction SilentlyContinue | ForEach-Object {
-            W ("Encerrando '{0}' (PID={1})..." -f $_.ProcessName, $_.Id)
-            $_ | Stop-Process -Force -ErrorAction SilentlyContinue
+function Start-LogsTail {
+    param([string]$Path,[int]$Seconds)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $Seconds) {
+        if (Test-Path $Path) {
+            # -Raw não é necessário aqui; preferimos últimas linhas
+            Get-Content -LiteralPath $Path -Tail 15
         }
+        Start-Sleep -Milliseconds 500
     }
+    $sw.Stop()
 }
 
-function Invoke-Injector {
-    param([string]$InjectorExe,[int]$ProcId,[string]$LogPath,[string]$DllPath)
-
-    $stdout = "C:\Temp\injector_stdout.log"
-    $stderr = "C:\Temp\injector_stderr.log"
-    Set-Content -LiteralPath $stdout -Value $null -Encoding UTF8 -Force
-    Set-Content -LiteralPath $stderr -Value $null -Encoding UTF8 -Force
-
-    # Assinatura: InjectorConsole <PID> <LogPath> [<DllPath>]
-    $args = if ($DllPath) { @($ProcId, $LogPath, $DllPath) } else { @($ProcId, $LogPath) }
-
-    $exit = 3
-    try {
-        $wd = Split-Path -Path $InjectorExe -Parent
-        W ("Injector args (reais): {0}" -f ($args -join ' '))
-        $p = Start-Process -FilePath $InjectorExe `
-                           -ArgumentList $args `
-                           -WorkingDirectory $wd `
-                           -Wait -PassThru `
-                           -WindowStyle Hidden `
-                           -RedirectStandardOutput $stdout `
-                           -RedirectStandardError  $stderr
-        $exit = $p.ExitCode
-        W ("Injector ExitCode={0}" -f $exit)
-    } catch {
-        W ("Exceção ao executar injector: {0}" -f $_.Exception.Message)
-        return $false
+function Ensure-RemoteOk {
+    param([string]$Path)
+    if (!(Test-Path $Path)) { throw "Log não encontrado: $Path" }
+    $content = Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue
+    $ok1 = $content -match '\[REMOTE OK\] Hooks \(UI \+ COM\) instalados\.'
+    $ok2 = $content -match 'COM hooks instalados com sucesso \(CoCreateInstance/Ex, CoGetClassObject\)\.'
+    $ok3 = $content -match '\[REMOTE OK\] RemoteEntry iniciado\.'
+    if (!($ok1 -or $ok2 -or $ok3)) {
+        throw "Confirmação de instalação não encontrada ainda em $Path"
     }
-
-    # Registrar STDOUT/STDERR — qualquer erro aqui NÃO invalida a injeção
-    try {
-        Write-LogLine ""
-        Write-LogLine "--- Injector STDOUT ---"
-        Get-Content -LiteralPath $stdout -Encoding UTF8 | ForEach-Object { Write-LogLine $_ }
-        Write-LogLine ""
-        Write-LogLine "--- Injector STDERR ---"
-        Get-Content -LiteralPath $stderr -Encoding UTF8 | ForEach-Object { Write-LogLine $_ }
-    } catch {
-        Write-Warning ("Falha ao registrar STDOUT/STDERR do Injector: {0}" -f $_.Exception.Message)
-    }
-
-    return ($exit -eq 0)
+    Write-Host "Verificação: instalação dos hooks confirmada."
 }
 
-function Try-Inject {
-    param([string]$InjectorExe,[int]$ProcId,[string]$DllPath)
-
-    if (-not (Test-Path -LiteralPath $InjectorExe)) { throw "Injector não encontrado: $InjectorExe" }
-    if (-not (Test-Path -LiteralPath $DllPath))    { throw "DLL para injeção não encontrada: $DllPath" }
-    $injArch = Test-PeArchitecture $InjectorExe
-    if ($injArch -ne "x86") { throw "Injector não é x86 (detectado: $injArch). Ajuste o build do InjectorConsole." }
-
-    W "Injetando no PID $ProcId | Log: $Global:LogPath"
-    if (Invoke-Injector -InjectorExe $InjectorExe -ProcId $ProcId -LogPath $Global:LogPath -DllPath $DllPath) {
-        W ("Sucesso. PID={0} DLL={1}" -f $ProcId, $DllPath)
-        return $true
-    } else {
-        W ("Falha de injeção. PID={0} DLL={1}" -f $ProcId, $DllPath)
-        throw "Falha de injeção (todas as sintaxes testadas)."
-    }
-}
-
-function Test-Process-Alive { param([int]$ProcId) try { Get-Process -Id $ProcId -ErrorAction Stop | Out-Null; $true } catch { $false } }
-
-function Find-LoadedModule {
-    param([int]$ProcId,[string]$ModuleName="ComHookLib.dll")
-    # 1) via .NET
-    try {
-        $p = Get-Process -Id $ProcId -ErrorAction Stop
-        foreach ($m in $p.Modules) { if ($m.ModuleName -ieq $ModuleName) { return $true } }
-    } catch { }
-    # 2) fallback via tasklist
-    try {
-        $out = & tasklist /FI "PID eq $ProcId" /M $ModuleName 2>$null
-        if ($out -match [regex]::Escape($ModuleName)) { return $true }
-    } catch { }
-    return $false
-}
-
-function Confirm-RemoteHeartbeat {
-    param([string]$Path = $Global:LogPath)
-    try { (Get-Content -LiteralPath $Path -ErrorAction Stop -Tail 200) -match "\[REMOTE OK\]" } catch { $false }
-}
-
-# =================== MAIN ===================
-
-Reset-Log
-
-# 1) Prepara DLL x86 versionada por SHA
-Ensure-X86-Dll-And-PrepareHashed -Src $DllFonte -InjectorExePath $InjectorExe -DllDestinoRelease $DllDestinoRelease -DllDestinoExe $DllDestinoExe
-if (-not $script:DllToInject) { throw "Não foi possível determinar a DLL a injetar." }
-W ("DLL a injetar: {0}" -f $script:DllToInject)
-
-# 2) Resolver PID
-if (-not $TargetProcId -or $TargetProcId -le 0) { $TargetProcId = Pick-ProcId -ProcessoAlvoPadrao $ProcessoAlvoPadrao -WindowTitleFilter $WindowTitleFilter }
-if (-not ($TargetProcId -is [int]) -or $TargetProcId -le 0) { throw "PID inválido: '$TargetProcId'." }
-W "Alvo: PID $TargetProcId"
-
-# 3) Tentativas
-for ($t = 1; $t -le $Tentativas; $t++) {
-    W "Tentativa $t de $Tentativas..."
-    try {
-        $ok = Try-Inject -InjectorExe $InjectorExe -ProcId $TargetProcId -DllPath $script:DllToInject
-        if ($ok) {
-            Write-Host "✅ Injeção concluída com sucesso no PID $TargetProcId."
-
-            if (Test-Process-Alive -ProcId $TargetProcId) {
-                $hasDll = Find-LoadedModule -ProcId $TargetProcId -ModuleName "ComHookLib.dll"
-                $hb = Confirm-RemoteHeartbeat
-
-                if ($hasDll) {
-                    W "Verificação: ComHookLib.dll ESTÁ carregada no PID $TargetProcId."
-                } elseif ($hb) {
-                    W "Verificação: [REMOTE OK] detectado no log."
-                } else {
-                    W "Verificação: NÃO encontrei ComHookLib.dll no PID e nenhum [REMOTE OK] no log."
-                }
-            } else {
-                W "Processo $TargetProcId encerrou antes da verificação."
+function Wait-ForComActivity {
+    param([string]$Path,[int]$TimeoutSeconds=180)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Path $Path) {
+            $content = Get-Content -LiteralPath $Path -Raw -ErrorAction SilentlyContinue
+            if ($content -match '"api":"Co(CreateInstance|CreateInstanceEx|GetClassObject)"') {
+                Write-Host "✔ Eventos COM detectados."
+                return
             }
+        }
+        Start-Sleep -Milliseconds 300
+    }
+    Write-Warning "Nenhum evento COM visto em ${TimeoutSeconds}s. Gere interação no banner ou aumente o timeout."
+}
 
-            if ($OpenLog) { notepad $Global:LogPath | Out-Null }
-            return
-        }
+function Tail-ForInteraction {
+    param([string]$Path,[int]$Seconds)
+    if ($Seconds -le 0) { return }
+    Write-Host ("-- Mantendo tail por {0}s para permitir interação no banner..." -f $Seconds)
+    Start-LogsTail -Path $Path -Seconds $Seconds
+}
+
+function Invoke-Injection {
+    param([int]$TargetPid, [string]$DllToInject, [string]$LogPath)
+    Write-Host "Alvo: PID $TargetPid"
+    Write-Host "Tentativa 1 de 1..."
+    Write-Host "Injetando no PID $TargetPid | Log: $LogPath"
+    Write-Host "Injector args (reais): $TargetPid $LogPath $DllToInject"
+    & $InjectorExe $TargetPid $LogPath $DllToInject | Write-Output
+    if ($LASTEXITCODE -ne 0) { throw "Injector retornou código $LASTEXITCODE" }
+    Write-Host "Injector ExitCode=$LASTEXITCODE"
+}
+
+# --- Preparar destino de log (apagar, truncar ou redirecionar) ---
+if (Test-Path $LogPath) {
+    try {
+        Remove-Item $LogPath -Force -ErrorAction Stop
     } catch {
-        W ("Falha na injeção: {0}" -f $_.Exception.Message)
-        if ($AutoCloseOnFail) {
-            Fechar-Clientes-FTView
-        } else {
-            $resp = Read-Host "Deseja fechar o cliente antes de tentar novamente? (S/N)"
-            if ($resp -match '^(s|S|y|Y)') { Fechar-Clientes-FTView }
+        Write-Warning "Log em uso, farei TRUNCATE ao invés de deletar: $LogPath"
+        try {
+            $fs=[System.IO.File]::Open($LogPath,[System.IO.FileMode]::OpenOrCreate,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]::ReadWrite)
+            $fs.SetLength(0); $fs.Flush(); $fs.Dispose()
+        } catch {
+            $new = [IO.Path]::Combine([IO.Path]::GetDirectoryName($LogPath),("ftaelog_{0}.log" -f (Get-Date -Format "yyyyMMdd_HHmmss")))
+            Write-Warning "Não consegui truncar. Redirecionando log para: $new"
+            $script:LogPath = $new
         }
-        Start-Sleep -Seconds 2
-        $TargetProcId = Pick-ProcId -ProcessoAlvoPadrao $ProcessoAlvoPadrao -WindowTitleFilter $WindowTitleFilter
-        if (-not ($TargetProcId -is [int]) -or $TargetProcId -le 0) { throw "PID inválido: '$TargetProcId'." }
     }
 }
 
-Write-Error "❌ Não foi possível injetar após $Tentativas tentativas."
-if ($OpenLog) { notepad $Global:LogPath | Out-Null }
-exit 1
+# --- Fluxo principal ---
+$DllToInject = New-VersionedCopy -Source $DllSource -OutDir $BinOutDir
+
+switch ($Mode) {
+
+'Attach' {
+    if (-not $TargetPid) { throw "Modo Attach requer -TargetPid <processo alvo>." }
+    Invoke-Injection -TargetPid $TargetPid -DllToInject $DllToInject -LogPath $LogPath
+
+    # 1) Espiar log imediatamente após a injeção
+    Start-LogsTail -Path $LogPath -Seconds $TailSeconds
+
+    # 2) Confirmar hooks remotos
+    Ensure-RemoteOk -Path $LogPath
+
+    # 3) Aguardar atividade COM (útil quando o ciclo do banner demora)
+    Wait-ForComActivity -Path $LogPath -TimeoutSeconds $ComTimeoutSeconds
+
+    # 4) Opcional: manter tail para você interagir livremente
+    Tail-ForInteraction -Path $LogPath -Seconds $StayAttachedSeconds
+
+    Write-Host "✅ Injeção (Attach) concluída."
+}
+
+'Smoke' {
+    # Gera alvo 32-bit para casar com DLL x86
+    $WScript32 = "$env:WINDIR\SysWOW64\wscript.exe"
+    if (!(Test-Path $WScript32)) { throw "wscript.exe (x86) não encontrado em $WScript32" }
+
+    # VBS de estímulo COM (demora um pouco e cria vários objetos COM)
+    $VbsPath = Join-Path $env:TEMP 'com_smoke_test.vbs'
+@'
+WScript.Echo "VBS iniciado, aguardando 4000 ms para injeção..."
+WScript.Sleep 4000
+Set d = CreateObject("Scripting.Dictionary")
+d.Add "k1", "v1"
+Set sh = CreateObject("WScript.Shell")
+sh.Environment("PROCESS")("ABC") = "123"
+For i = 1 To 3
+  Set d2 = CreateObject("Scripting.Dictionary")
+  Set sh2 = CreateObject("WScript.Shell")
+Next
+WScript.Echo "Teste COM concluído."
+WScript.Sleep 2000
+'@ | Set-Content -Path $VbsPath -Encoding ASCII
+
+    $proc = Start-Process -FilePath $WScript32 -ArgumentList "`"$VbsPath`"" -PassThru
+
+    Invoke-Injection -TargetPid $proc.Id -DllToInject $DllToInject -LogPath $LogPath
+    Start-LogsTail -Path $LogPath -Seconds $TailSeconds
+    Ensure-RemoteOk -Path $LogPath
+    Wait-ForComActivity -Path $LogPath -TimeoutSeconds $ComTimeoutSeconds
+
+    if (-not $proc.HasExited) { $proc | Stop-Process -Force }
+    Write-Host "✅ Injeção (Smoke) concluída."
+}
+}
+
+<#
+Exemplos de uso:
+
+$ts = Get-Date -Format "yyyyMMdd_HHmmss"
+
+# Attach ao seu processo alvo + 2min para aguardar eventos COM + 2min extras de tail para você interagir
+.\Test-Injection.ps1 -Mode Attach -TargetPid 23880 `
+  -InjectorExe 'C:\Projetos\VisualStudio\Banner\InjectorConsole\bin\x86\Release\InjectorConsole.exe' `
+  -DllSource  'C:\Projetos\VisualStudio\Banner\ComHookLib\bin\x86\Release\ComHookLib.dll' `
+  -BinOutDir  'C:\Projetos\VisualStudio\Banner\InjectorConsole\bin\x86\Release' `
+  -LogPath    "C:\Temp\ftaelog_$ts.log" `
+  -ComTimeoutSeconds 150 `
+  -StayAttachedSeconds 120
+
+# Smoke test rápido
+.\Test-Injection.ps1 -Mode Smoke `
+  -InjectorExe 'C:\Projetos\VisualStudio\Banner\InjectorConsole\bin\x86\Release\InjectorConsole.exe' `
+  -DllSource  'C:\Projetos\VisualStudio\Banner\ComHookLib\bin\x86\Release\ComHookLib.dll' `
+  -BinOutDir  'C:\Projetos\VisualStudio\Banner\InjectorConsole\bin\x86\Release' `
+  -LogPath    "C:\Temp\ftaelog_smoke_$ts.log" `
+  -ComTimeoutSeconds 20
+#>
