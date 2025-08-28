@@ -5,7 +5,9 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Diagnostics;
 using FTAlarmEventSummary;
+// using static System.Windows.Forms.VisualStyles.VisualStyleElement; // não é necessário
 
 namespace OcxProbe
 {
@@ -23,6 +25,26 @@ namespace OcxProbe
             sb.AppendLine();
             ProbeOne("Banner", new AlarmEventBannerClass(), sb);
 
+            // Exporta mapas DISPIDs (Summary/Banner) para apoiar o hook de IDispatch no alvo real
+            try
+            {
+                var (j1, c1) = RcwDispatchMap.ExportSummary();
+                var (j2, c2) = RcwDispatchMap.ExportBanner();
+
+                sb.AppendLine();
+                sb.AppendLine("+ DISPIDs exportados:");
+                sb.AppendLine("  - " + j1);
+                sb.AppendLine("  - " + c1);
+                sb.AppendLine("  - " + j2);
+                sb.AppendLine("  - " + c2);
+
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine("! Falha ao exportar DISPIDs: " + ex.Message);
+            }
+
+            // Grava após adicionar tudo ao buffer
             var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "rcw_run.txt");
             File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
             return path;
@@ -51,6 +73,7 @@ namespace OcxProbe
 
             // 3) Métodos “seguros” (podem falhar se faltar configuração – loga HRESULT)
             TryInvoke(comObj, "LoadMessages", tag, sb);       // pode requerer ConnectionString
+            TryInvoke(comObj, "Refresh", tag, sb);            // comum no Summary/Banner
             TryInvoke(comObj, "ShowPropertyPages", tag, sb);  // pode abrir UI/do COM
         }
 
@@ -145,38 +168,65 @@ namespace OcxProbe
         /// mas encaminhando os argumentos para um sink (nome do evento, object[] args).
         /// Compatível com C# 7.3.
         /// </summary>
-        public static void AttachAllEvents(object comObj, System.Action<string, object[]> sink)
+        public static void AttachAllEvents(object comObj, Action<string, object[]> sink)
         {
             var t = comObj.GetType();
             var events = t.GetEvents();
             foreach (var ev in events)
             {
-                var handlerType = ev.EventHandlerType;
-                var invoke = handlerType.GetMethod("Invoke");
-                var parms = invoke.GetParameters();
+                try
+                {
+                    var handlerType = ev.EventHandlerType;
+                    var invoke = handlerType.GetMethod("Invoke");
+                    var parms = invoke.GetParameters();
 
-                // Parâmetros tipados exatamente como o delegate do evento:
-                var paramExprs = parms.Select(p => Expression.Parameter(p.ParameterType, p.Name)).ToArray();
+                    // Parâmetros tipados exatamente como o delegate do evento:
+                    var paramExprs = parms.Select(p => Expression.Parameter(p.ParameterType, p.Name)).ToArray();
 
-                // Constrói object[] com boxing de cada parâmetro:
-                var boxed = paramExprs
-                    .Select(p => (Expression)Expression.Convert(p, typeof(object)))
-                    .ToArray();
-                var newArr = Expression.NewArrayInit(typeof(object), boxed);
+                    // Constrói object[] com boxing de cada parâmetro:
+                    var boxed = paramExprs
+                        .Select(p => (Expression)Expression.Convert(p, typeof(object)))
+                        .ToArray();
+                    var newArr = Expression.NewArrayInit(typeof(object), boxed);
 
-                // Chama sink.Invoke(evName, object[])
-                var sinkConst = Expression.Constant(sink);
-                var sinkInvoke = sink.GetType().GetMethod("Invoke");
-                var callSink = Expression.Call(
-                    sinkConst,
-                    sinkInvoke,
-                    Expression.Constant(ev.Name),
-                    newArr
-                );
+                    // Chama sink.Invoke(evName, object[])
+                    var sinkConst = Expression.Constant(sink);
+                    var sinkInvoke = sink.GetType().GetMethod("Invoke");
+                    var callSink = Expression.Call(
+                        sinkConst,
+                        sinkInvoke,
+                        Expression.Constant(ev.Name),
+                        newArr
+                    );
 
-                // Lambda com o tipo EXATO do evento
-                var lambda = Expression.Lambda(handlerType, callSink, paramExprs).Compile();
-                ev.AddEventHandler(comObj, lambda);
+                    // Lambda com o tipo EXATO do evento
+                    var lambda = Expression.Lambda(handlerType, callSink, paramExprs).Compile();
+
+                    try
+                    {
+                        ev.AddEventHandler(comObj, lambda);
+                    }
+                    catch (TargetInvocationException tie) // first-chance comum sem host específico
+                    {
+                        var inner = tie.InnerException;
+                        Debug.WriteLine(
+                            $"! EVENT {ev.DeclaringType?.Name}.{ev.Name} AddHandler TIE 0x{(inner as COMException)?.HResult:X8} {inner?.Message}");
+                    }
+                    catch (COMException cex)
+                    {
+                        Debug.WriteLine(
+                            $"! EVENT {ev.DeclaringType?.Name}.{ev.Name} AddHandler COM 0x{cex.HResult:X8} {cex.Message}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine(
+                            $"! EVENT {ev.DeclaringType?.Name}.{ev.Name} AddHandler EXC {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"! EVENT {ev.DeclaringType?.Name}.{ev.Name} PrepareHandler EXC {ex.GetType().Name}: {ex.Message}");
+                }
             }
         }
     }

@@ -84,6 +84,7 @@
     </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="RcwDispatchMap.cs" />
     <Compile Include="RcwEventProbe.cs" />
     <Compile Include="RcwInspector.cs" />
     <EmbeddedResource Include="Properties\Resources.resx">

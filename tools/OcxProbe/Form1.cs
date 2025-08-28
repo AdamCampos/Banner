@@ -15,7 +15,25 @@ namespace OcxProbe
         public Form1()
         {
             InitializeComponent();
+
+            try
+            {
+                var outTxt = OcxProbe.RcwEventProbe.Run();
+                var maps1 = OcxProbe.RcwDispatchMap.ExportSummary();
+                var maps2 = OcxProbe.RcwDispatchMap.ExportBanner();
+                // feedback rápido
+                this.BeginInvoke(new Action(() =>
+                    MessageBox.Show(this, "RCW probe finalizado.\n\n" +
+                                           outTxt + "\n" +
+                                           maps1.json + "\n" + maps1.csv + "\n" +
+                                           maps2.json + "\n" + maps2.csv,
+                                           "OcxProbe", MessageBoxButtons.OK, MessageBoxIcon.Information)));
+            }
+            catch { /* silencioso para não travar UI em ambiente sem OCX */ }
+
+
             this.Load += Form1_Load;
+
         }
 
         private void Form1_Load(object sender, EventArgs e)
@@ -81,15 +99,25 @@ namespace OcxProbe
                 {
                     var v = p.GetValue(o, null);
                     var line = $"+ GET {o.GetType().Name}.{prop} = {v}";
-                    File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "rcw_run.txt"),
-                                       line + Environment.NewLine, Encoding.UTF8);
+                    File.AppendAllText(Path.Combine(OutDir(), "rcw_run.txt"),
+                   line + Environment.NewLine, Encoding.UTF8);
+
                     Debug.WriteLine(line);
                 }
             }
             catch { }
         }
 
-        // Se quiser reaproveitar o TryInvoke do seu RcwEventProbe, ok;
-        // deixei só os utilitários essenciais aqui.
+        private static string OutDir()
+        {
+            var env = Environment.GetEnvironmentVariable("OCXPROBE_OUTDIR");
+            if (!string.IsNullOrWhiteSpace(env))
+            {
+                try { Directory.CreateDirectory(env); return env; } catch { }
+            }
+            return AppDomain.CurrentDomain.BaseDirectory;
+        }
+
+
     }
 }
