@@ -48,15 +48,24 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ComDecode.cs" />
+    <Compile Include="ComDictionary.cs" />
+    <Compile Include="ComEvents.cs" />
     <Compile Include="ComLogIpc.cs" />
+    <Compile Include="DTO\CoCreateInstanceExDto.cs" />
+    <Compile Include="DTO\CoGetClassObjectDto.cs" />
+    <Compile Include="DTO\ComEventBase.cs" />
+    <Compile Include="DTO\UiEventDto.cs" />
     <Compile Include="Hooking\ComApis.cs" />
     <Compile Include="Hooking\EasyHookHelper.cs" />
     <Compile Include="Jsonl.cs" />
+    <Compile Include="MultiSink.cs" />
     <Compile Include="Native.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="ComHooks.cs" />
     <Compile Include="ComLogger.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="RelevantFileSink.cs" />
     <Compile Include="RemoteEntry.cs" />
     <Compile Include="UiHook.cs" />
   </ItemGroup>

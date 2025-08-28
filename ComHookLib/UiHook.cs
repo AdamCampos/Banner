@@ -65,21 +65,21 @@ namespace ComHookLib
                 ((!string.IsNullOrEmpty(cls) && cls.IndexOf("FT", StringComparison.OrdinalIgnoreCase) >= 0) || (!string.IsNullOrEmpty(title) && title.IndexOf("Alarm", StringComparison.OrdinalIgnoreCase) >= 0)) ? "ftaebanner" :
                 "window";
 
-            var record = new
+            var dto = new ComEvents.UiWindowEvent
             {
                 ts = DateTime.UtcNow.ToString("o"),
                 evt = evt,
                 kind = kind,
                 pid = System.Diagnostics.Process.GetCurrentProcess().Id,
-                tid = Native.GetCurrentThreadId(),
+                tid = (int)Native.GetCurrentThreadId(),
                 hwnd = "0x" + ((long)hwnd).ToString("X"),
                 cls = cls,
                 title = title,
                 threadId = threadId
             };
 
-            _logger.Log(record);
-            _logger.Info("UI {0} {1} hwnd={2} cls='{3}' title='{4}'", evt, kind, record.hwnd, cls, title);
+            _logger.Log(dto);
+            _logger.Info("UI {0} {1} hwnd={2} cls='{3}' title='{4}'", evt, kind, dto.hwnd, cls, title);
         }
 
         public void Dispose()

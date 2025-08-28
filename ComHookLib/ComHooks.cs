@@ -43,8 +43,10 @@ namespace ComHookLib
         private static int CCICallback(ref Guid rclsid, IntPtr pUnkOuter, CLSCTX ctx, ref Guid riid, out IntPtr ppv)
         {
             var pid = Process.GetCurrentProcess().Id;
-            var tid = Native.GetCurrentThreadId();
-            string progId = Native.ProgIdFromClsidSafe(rclsid);
+            var tid = (int)Native.GetCurrentThreadId();
+            string progIdRaw = Native.ProgIdFromClsidSafe(rclsid);
+            string clsidStr = rclsid.ToString("D");
+            string iidStr = riid.ToString("D");
 
             var sw = Stopwatch.StartNew();
             int hr = 0;
@@ -58,27 +60,32 @@ namespace ComHookLib
             finally
             {
                 sw.Stop();
-                SafeLog(new
+                var dto = new ComEvents.CoCreateInstanceEvent
                 {
                     ts = DateTime.UtcNow.ToString("o"),
                     api = "CoCreateInstance",
                     pid = pid,
                     tid = tid,
-                    clsid = rclsid,
-                    progId = progId,
-                    iid = riid,
+                    clsid = clsidStr,
+                    progId = ComDictionary.TryResolveProgId(clsidStr, progIdRaw),
+                    iid = iidStr,
+                    iid_name = ComDictionary.TryResolveIid(iidStr),
                     clsctx = ctx.ToString(),
                     hr = $"0x{hr:X8}",
-                    elapsed_ms = sw.Elapsed.TotalMilliseconds
-                });
+                    hr_name = ComDictionary.TryResolveHResult($"0x{hr:X8}"),
+                    elapsed_ms = sw.Elapsed.TotalMilliseconds,
+                    kind = ComDictionary.TryResolveKind(clsidStr, progIdRaw)
+                };
+                SafeLog(dto);
             }
         }
 
         private static int CCIExCallback(ref Guid rclsid, IntPtr pUnkOuter, CLSCTX ctx, IntPtr pServerInfo, uint dwCount, IntPtr pResults)
         {
             var pid = Process.GetCurrentProcess().Id;
-            var tid = Native.GetCurrentThreadId();
-            string progId = Native.ProgIdFromClsidSafe(rclsid);
+            var tid = (int)Native.GetCurrentThreadId();
+            string progIdRaw = Native.ProgIdFromClsidSafe(rclsid);
+            string clsidStr = rclsid.ToString("D");
 
             Guid[] iidsIn = ReadIidsFromMultiQi(pResults, dwCount);
             int hr = 0;
@@ -94,29 +101,44 @@ namespace ComHookLib
                 sw.Stop();
                 int[] hrsPerQi = ReadHResultsFromMultiQi(pResults, dwCount);
 
-                SafeLog(new
+                string[] iidStrs = new string[iidsIn.Length];
+                string[] iidNames = new string[iidsIn.Length];
+                for (int i = 0; i < iidsIn.Length; i++)
+                {
+                    var s = iidsIn[i].ToString("D");
+                    iidStrs[i] = s;
+                    iidNames[i] = ComDictionary.TryResolveIid(s);
+                }
+
+                var dto = new ComEvents.CoCreateInstanceExEvent
                 {
                     ts = DateTime.UtcNow.ToString("o"),
                     api = "CoCreateInstanceEx",
                     pid = pid,
                     tid = tid,
-                    clsid = rclsid,
-                    progId = progId,
+                    clsid = clsidStr,
+                    progId = ComDictionary.TryResolveProgId(clsidStr, progIdRaw),
                     clsctx = ctx.ToString(),
                     count = dwCount,
-                    iids = iidsIn,
+                    iids = iidStrs,
+                    iid_names = iidNames,
                     multiqi_hr = hrsPerQi,
                     hr = $"0x{hr:X8}",
-                    elapsed_ms = sw.Elapsed.TotalMilliseconds
-                });
+                    hr_name = ComDictionary.TryResolveHResult($"0x{hr:X8}"),
+                    elapsed_ms = sw.Elapsed.TotalMilliseconds,
+                    kind = ComDictionary.TryResolveKind(clsidStr, progIdRaw)
+                };
+                SafeLog(dto);
             }
         }
 
         private static int CGCOCallback(ref Guid rclsid, CLSCTX ctx, IntPtr pServerInfo, ref Guid riid, out IntPtr ppv)
         {
             var pid = Process.GetCurrentProcess().Id;
-            var tid = Native.GetCurrentThreadId();
-            string progId = Native.ProgIdFromClsidSafe(rclsid);
+            var tid = (int)Native.GetCurrentThreadId();
+            string progIdRaw = Native.ProgIdFromClsidSafe(rclsid);
+            string clsidStr = rclsid.ToString("D");
+            string iidStr = riid.ToString("D");
 
             var sw = Stopwatch.StartNew();
             int hr = 0;
@@ -130,25 +152,29 @@ namespace ComHookLib
             finally
             {
                 sw.Stop();
-                SafeLog(new
+                var dto = new ComEvents.CoGetClassObjectEvent
                 {
                     ts = DateTime.UtcNow.ToString("o"),
                     api = "CoGetClassObject",
                     pid = pid,
                     tid = tid,
-                    clsid = rclsid,
-                    progId = progId,
-                    iid = riid,
+                    clsid = clsidStr,
+                    progId = ComDictionary.TryResolveProgId(clsidStr, progIdRaw),
+                    iid = iidStr,
+                    iid_name = ComDictionary.TryResolveIid(iidStr),
                     clsctx = ctx.ToString(),
                     hr = $"0x{hr:X8}",
-                    elapsed_ms = sw.Elapsed.TotalMilliseconds
-                });
+                    hr_name = ComDictionary.TryResolveHResult($"0x{hr:X8}"),
+                    elapsed_ms = sw.Elapsed.TotalMilliseconds,
+                    kind = ComDictionary.TryResolveKind(clsidStr, progIdRaw)
+                };
+                SafeLog(dto);
             }
         }
 
         private static Guid[] ReadIidsFromMultiQi(IntPtr pResults, uint count)
         {
-            if (pResults == IntPtr.Zero || count == 0) return new Guid[0];
+            if (pResults == IntPtr.Zero || count == 0) return Array.Empty<Guid>();
             var list = new Guid[count];
             int size = Marshal.SizeOf(typeof(MULTI_QI));
             for (int i = 0; i < count; i++)
@@ -173,7 +199,7 @@ namespace ComHookLib
 
         private static int[] ReadHResultsFromMultiQi(IntPtr pResults, uint count)
         {
-            if (pResults == IntPtr.Zero || count == 0) return new int[0];
+            if (pResults == IntPtr.Zero || count == 0) return Array.Empty<int>();
             var list = new int[count];
             int size = Marshal.SizeOf(typeof(MULTI_QI));
             for (int i = 0; i < count; i++)
